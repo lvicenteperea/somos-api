@@ -20,6 +20,13 @@ def make_json_safe(value):
         return [make_json_safe(v) for v in value]
     if isinstance(value, tuple):
         return [make_json_safe(v) for v in value]
+    try:
+        import json
+
+        json.dumps(value)
+        return value
+    except TypeError:
+        return str(value)
     return value
 
 

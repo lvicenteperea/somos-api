@@ -1,19 +1,19 @@
-import pytest
-from fastapi.testclient import TestClient
-from app.main import app
+import asyncio
 import random
 import string
 import sys
-import os
+from datetime import timedelta
+from pathlib import Path
 
-ROOT = os.path.dirname(os.path.abspath(__file__))
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
-    
-# --- Registrar nuevas opciones de ini ---
-def pytest_addoption(parser):
-    parser.addini("auth_username", "Usuario para /bo/auth", default="")
-    parser.addini("auth_password", "Password para /bo/auth", default="")
+import httpx
+import pytest
+
+from app.main import app
+from app.middlewares.jwt_auth import create_access_token
+
+ROOT = Path(__file__).resolve().parent
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 
 @pytest.fixture
@@ -21,36 +21,47 @@ def anyio_backend():
     return "asyncio"
 
 
+class ASGITestClient:
+    def __init__(self, app):
+        self.app = app
+
+    def post(self, url: str, **kwargs):
+        return self._request("POST", url, **kwargs)
+
+    def get(self, url: str, **kwargs):
+        return self._request("GET", url, **kwargs)
+
+    def _request(self, method: str, url: str, **kwargs):
+        async def _send():
+            transport = httpx.ASGITransport(app=self.app)
+            async with httpx.AsyncClient(
+                transport=transport,
+                base_url="http://testserver",
+            ) as client:
+                return await client.request(method, url, **kwargs)
+
+        return asyncio.run(_send())
+
+
 @pytest.fixture(scope="session")
 def client():
-    return TestClient(app)
+    return ASGITestClient(app)
 
 
 @pytest.fixture(scope="session")
-def headers(client, pytestconfig):
-    """Hace login en /bo/auth y devuelve headers con Bearer token"""
-
-    username = pytestconfig.getini("auth_username")
-    password = pytestconfig.getini("auth_password")
-
-    if not username or not password:
-        raise RuntimeError("⚠️ Configura auth_username y auth_password en pytest.local.ini")
-
-    resp_auth = client.post("/bo/auth", json={"username": username, "password": password})
-    assert resp_auth.status_code == 200, f"Fallo en auth: {resp_auth.status_code} - {resp_auth.text}"
-
-    data = resp_auth.json()
-    token = data.get("access_token") or data.get("bearer")
-    assert token, f"No se recibió token en respuesta de /bo/auth: {resp_auth.text}"
-
-
+def headers():
+    token = create_access_token(
+        {"sub": "pytest"},
+        expires_delta=timedelta(minutes=30),
+    )
     return {"Authorization": f"Bearer {token}"}
 
 
 @pytest.fixture
 def generar_codigo_reserva():
     def _generate(length=15):
-        return ''.join(random.choices(string.ascii_letters + string.digits, k=length))
+        return "".join(random.choices(string.ascii_letters + string.digits, k=length))
+
     return _generate
 
 
@@ -61,4 +72,5 @@ def generar_matricula():
         consonantes = "BCDFGHJKLMNPQRSTVWXYZ"
         numeros = "0123456789"
         return "1234" + random.choice(vocales) + random.choice(consonantes) + random.choice(numeros)
+
     return _generate

@@ -1,4 +1,4 @@
-# app/repositories/__init__.py
-from app.repositories.apk_sede_repository import ApkSedeRepository, ApkSedeService
+"""Repositorio de acceso a datos.
 
-__all__ = ['ApkSedeRepository', 'ApkSedeService']
+Actualmente no hay repositorios activos en el nucleo de la API.
+"""

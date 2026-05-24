@@ -2,8 +2,9 @@ from typing import Optional, Type, Dict
 import logging
 from sqlmodel import select, Session
 from typing import Dict, List, Tuple, Any
-import json, re, os, io, base64
+import json, re, os, io
 
+from app.config.settings import settings
 from app.models.mail.mail_servidores import MailServidor
 from app.models.mail.mail_envios import MailEnvio
 from app.models.mail.mail_adjuntos import MailAdjunto
@@ -14,7 +15,6 @@ from app.mailing.providers.sendgrid_mailing_provider import SendgridMailingProvi
 import qrcode
 from qrcode.constants import ERROR_CORRECT_M
 
-import json, re, os, io, base64
 import hashlib
 import tempfile
 
@@ -154,7 +154,7 @@ class MailingHandler:
                     return m.group(0)
 
             elif k == "url":
-                return os.getenv("URL_PWA", "http://localhost")
+                return settings.URL_PWA
 
             return str(mapping.get(k, m.group(0)))
 

@@ -6,25 +6,15 @@ from app.models.mail.mail_robinson import MailRobinson
 from app.mailing.mailing_handler import MailingHandler
 from app.models.somos_configuracion import SomosConfiguracion
 import logging
-from datetime import datetime
 import re
-import psutil
-import subprocess
 from app.utils.dates import ahora
-import os
-from pathlib import Path
 from sqlmodel import Session
-from sqlalchemy import text
-from app.utils.call_db_procedure import call_db_procedure, call_db_procedure_json
-from app.repositories.tarjetas_repository import TarjetasRepository
-import sys
+from app.config.settings import settings
+from app.utils.call_db_procedure import call_db_procedure
 import json
-from dotenv import load_dotenv
 import asyncio
 
 logger = logging.getLogger(__name__)
-
-load_dotenv()
 
 
 class MailsService:
@@ -197,7 +187,7 @@ class MailsService:
             )
         )
 
-        if os.getenv("DEVELOPMENT", "0") == "1":
+        if settings.DEVELOPMENT:
             for e in emails:
                 if not (
                     e.endswith("somos.es")
@@ -224,8 +214,9 @@ class MailsService:
         )
 
         result = db.execute(stmt)
-        if result.first() is not None:
-            return True, result.first().email
+        match = result.scalars().first()
+        if match is not None:
+            return True, match.email
         return False, ""
 
     @staticmethod
@@ -269,13 +260,13 @@ class MailsService:
         try:
             # 1) id_app
             try:
-                id_app = int(os.getenv("APP_ID"))
+                id_app = settings.APP_ID
             except Exception:
                 return -1
 
             # 3) destinatarios
             para = SomosConfiguracion.get_value(
-                db, id_app, "alertas", "Error_reservas", os.getenv("NOTIFY_EMAILS", "")
+                db, id_app, "alertas", "Error_reservas", settings.NOTIFY_EMAILS
             )
             if not para or para == "":
                 return -1
@@ -312,120 +303,3 @@ class MailsService:
             logger.exception(f"Error en send_notification_email: {asunto} - {mensaje}")
             logger.exception(e)
             return -1
-
-    @staticmethod
-    async def notify_expiring_cards(db: Session) -> Dict[str, Any]:
-        """
-        Consulta las tarjetas de clientes activos que caducan en los próximos
-        30 días e invoca w_mail_graba_mail por cada una para encolar el email
-        de recordatorio de caducidad.
-
-        Retorna un dict con el número de emails encolados y de errores.
-        """
-        try:
-            id_app = int(os.getenv("APP_ID"))
-        except Exception:
-            logger.error("notify_expiring_cards: APP_ID no configurado")
-            return {"enviados": 0, "errores": 0}
-
-        try:
-            repo = TarjetasRepository(db)
-            tarjetas = repo.get_tarjetas_proximas_a_caducar()
-        except Exception as e:
-            logger.error(f"notify_expiring_cards: error al consultar tarjetas: {e}")
-            return {"enviados": 0, "errores": 1}
-
-        if not tarjetas:
-            logger.info("notify_expiring_cards: no hay tarjetas próximas a caducar")
-            return {"enviados": 0, "errores": 0}
-
-        logger.info(f"notify_expiring_cards: {len(tarjetas)} tarjeta(s) encontradas")
-
-        enviados = 0
-        errores = 0
-        for row in tarjetas:
-            id_cliente: int = row.id_cliente
-            email: str = row.email
-            nombre = row.nombre
-            apellido1 = row.apellido1
-            apellido2 = row.apellido2
-            alias = row.alias
-            card_expire_date = row.card_expire_date
-
-            if not email:
-                logger.warning(
-                    f"notify_expiring_cards: cliente {id_cliente} sin email, se omite"
-                )
-                errores += 1
-                continue
-
-            nombre_completo = " ".join(
-                p for p in [nombre, apellido1, apellido2] if p
-            ).strip()
-
-            fecha_str = (
-                card_expire_date.strftime("%d/%m/%Y")
-                if hasattr(card_expire_date, "strftime")
-                else str(card_expire_date)
-            )
-
-            parametros = json.dumps(
-                {
-                    "NOMBRE": nombre,
-                    "APELLIDO1": apellido1,
-                    "APELLIDO2": apellido2,
-                    "NOMBRE_COMPLETO": nombre_completo,
-                    "ALIAS": alias,
-                    "CARD_EXPIRE_DATE": fecha_str,
-                },
-                ensure_ascii=False,
-            )
-
-            clave_externa = f"alarma_tj_cad-{id_cliente}"
-
-            try:
-                await call_db_procedure_json(
-                    db=db,
-                    procedure_name="w_mail_graba_mail_slug",
-                    ordered_params=[
-                        ("v_idApp", id_app),
-                        ("v_user", "admin"),
-                        ("v_retNum", 0),
-                        ("v_retTxt", ""),
-                        ("v_slug", "EMAIL_CAD_TARJ"),
-                        ("v_id_servidor", None),
-                        ("v_id_participante", id_cliente),
-                        ("v_para", email),
-                        ("v_para_nombre", nombre_completo or None),
-                        ("v_de", None),
-                        ("v_de_nombre", None),
-                        ("v_cc", None),
-                        ("v_bcc", None),
-                        ("v_prioridad", 5),
-                        ("v_reply_to", None),
-                        ("v_clave_externa", clave_externa),
-                        ("v_lenguaje", "es"),
-                        ("v_parametros", parametros),
-                        ("v_fecha_envio", None),
-                        ("v_id_externo", "card_expiry"),
-                        ("v_adjuntos", json.dumps([], ensure_ascii=False)),
-                        ("v_id_email", 0),
-                    ],
-                    output_vars=["v_retNum", "v_retTxt", "v_id_email"],
-                )
-                logger.info(
-                    f"notify_expiring_cards: email encolado → {email} "
-                    f"(tarjeta '{alias}', caduca {fecha_str})"
-                )
-                enviados += 1
-            except Exception as e:
-                logger.error(
-                    f"notify_expiring_cards: error al encolar email para "
-                    f"{email} (tarjeta '{alias}'): {e}"
-                )
-                errores += 1
-
-        logger.info(
-            f"notify_expiring_cards: finalizado — {enviados} enviados, {errores} errores"
-        )
-        return {"enviados": enviados, "errores": errores}

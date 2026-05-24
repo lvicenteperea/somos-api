@@ -27,14 +27,13 @@ class SMTPMailingProvider(MailingProvider):
         if "tls" in credentials:
             self.use_tls = str(credentials.get("tls", "true")).lower() == "true"
 
-        # DEBUG: mostrar lo que llega
-        print("SMTP Credentials loaded:")
-        print(f"  host={self.smtp_host}")
-        print(f"  port={self.smtp_port}")
-        print(f"  username={self.username!r}")
-        print(f"  password={'***' if self.password else None}")
-        print(f"  use_tls={self.use_tls}")
-        print(credentials)
+        logger.debug(
+            "SMTP credentials loaded: host=%s port=%s username=%s tls=%s",
+            self.smtp_host,
+            self.smtp_port,
+            self.username,
+            self.use_tls,
+        )
 
     def _build_message(self, envio: MailEnvio, render_subject:str, render_body:str, adjuntos: List[str] | None) -> Tuple[EmailMessage, List[str]]:
         if not envio.de:
@@ -151,7 +150,7 @@ class SMTPMailingProvider(MailingProvider):
 
         try:
             with smtplib.SMTP(self.smtp_host, self.smtp_port, timeout=self.timeout) as server:
-                server.set_debuglevel(1)
+                server.set_debuglevel(0)
 
                 # EHLO implícito en send/feature calls, pero forzamos para registrar capacidades
                 code, resp = server.ehlo()

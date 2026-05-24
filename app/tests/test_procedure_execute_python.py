@@ -11,6 +11,14 @@ import tempfile
 import os
 import asyncio
 
+pytestmark = [
+    pytest.mark.integration,
+    pytest.mark.skipif(
+        os.getenv("RUN_INTEGRATION_TESTS") != "1",
+        reason="requiere crear procedimientos en una BBDD real",
+    ),
+]
+
 def _flag_path():
     return os.path.join(tempfile.gettempdir(), "pytest_exec_python")
 

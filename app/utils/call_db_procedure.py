@@ -6,6 +6,8 @@ from fastapi import HTTPException, status
 import json
 
 
+# --------------------------------------------------------------------------------------
+# --------------------------------------------------------------------------------------
 class CoreDatabaseException(HTTPException):
     def __init__(
         self, slug, log, txt_cli, status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
@@ -131,107 +133,10 @@ async def exec_python_output(exec_data, db):
 
 # --------------------------------------------------------------------------------------
 # --------------------------------------------------------------------------------------
-from typing import List, Tuple, Dict, Any
 
-'''
-async def call_db_procedure_json(
-    db,
-    procedure_name: str,
-    ordered_params: List[Tuple[str, Any]],
-    output_vars: List[str],
-) -> Dict[str, Any]:
-    """
-    Envuelve una llamada a call_db_procedure agrupando dinámicamente los parámetros
-    en JSON de entrada y salida, y luego los desagrega tras la ejecución.
-
-    Ejemplo:
-        v_datos_entrada = { todos los parámetros de entrada }
-        v_datos_salida  = { todos los parámetros de salida (inicialmente None) }
-
-    Luego el procedimiento SQL recibe:
-        CALL w_xxx(v_datos_entrada, v_datos_salida);
-
-    Y al devolver los resultados, la función desglosa los valores de v_datos_salida.
-    """
-
-    try:
-        # --- 1️⃣ Convertir lista de parámetros en diccionario ---
-        params_dict = dict(ordered_params)
-
-        # --- 2️⃣ Variables fijas estándar ---
-        fixed_params = {
-            "v_idApp": params_dict.get("v_idApp"),
-            "v_user": params_dict.get("v_user"),
-            "v_retNum": params_dict.get("v_retNum", 0),
-            "v_retTxt": params_dict.get("v_retTxt", "")
-        }
-
-        # --- 3️⃣ Separar dinámicamente los parámetros de entrada/salida ---
-        entrada_vars = {k: v for k, v in ordered_params
-                        if k not in fixed_params and k not in output_vars}
-        salida_vars = {k: v for k, v in ordered_params if k in output_vars}
-
-        # --- 4️⃣ Crear los JSON de entrada y salida ---
-        v_datos_entrada = json.dumps(entrada_vars, ensure_ascii=False)
-        v_datos_salida = json.dumps(salida_vars, ensure_ascii=False)
-
-        print(f"📥 [call_db_procedure_json] Datos de entrada:\n{v_datos_entrada}")
-        print(f"📤 [call_db_procedure_json] Datos de salida inicial:\n{v_datos_salida}")
-
-        # --- 5️⃣ Llamar al procedimiento real agrupado ---
-        res = await call_db_procedure(
-            db=db,
-            procedure_name=procedure_name,
-            ordered_params=[
-                ("v_idApp", fixed_params["v_idApp"]),
-                ("v_user", fixed_params["v_user"]),
-                ("v_retNum", fixed_params["v_retNum"]),
-                ("v_retTxt", fixed_params["v_retTxt"]),
-                ("v_datos_entrada", v_datos_entrada),
-                ("v_datos_salida", v_datos_salida),
-            ],
-            output_vars=["v_retNum", "v_retTxt", "v_datos_salida"]
-        )
-
-        # --- 6️⃣ Procesar respuesta ---
-        ret_num = res.get("v_retNum", -99)
-        ret_txt = res.get("v_retTxt", "Error desconocido")
-        datos_salida_raw = res.get("v_datos_salida")
-
-        print(f"📦 [call_db_procedure_json] Resultado bruto de salida:\n{datos_salida_raw}")
-
-        # --- 7️⃣ Decodificar JSON de salida ---
-        datos_salida = {}
-        if datos_salida_raw:
-            try:
-                datos_salida = json.loads(datos_salida_raw)
-            except Exception:
-                print("[WARN] No se pudo decodificar v_datos_salida (no es JSON válido).")
-
-        # --- 8️⃣ Combinar valores devueltos ---
-        final_result = {
-            "v_retNum": ret_num,
-            "v_retTxt": ret_txt,
-            **datos_salida
-        }
-
-        print(f"✅ [call_db_procedure_json] Resultado final:\n{final_result}")
-        return final_result
-
-    except HTTPException as e:
-        print(f"❌ [call_db_procedure_json] Error:\n{str(e)}")
-        raise
-    except Exception as e:
-        print(f"❌[ERROR] call_db_procedure_json({procedure_name}) → {e}")
-        traceback.print_exc()
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error interno al ejecutar {procedure_name}: {str(e)}"
-        )
-'''
-
-
-async def call_db_procedure_json(
+# --------------------------------------------------------------------------------------
+# --------------------------------------------------------------------------------------
+async def call_db_procedure(
     db,
     procedure_name: str,
     ordered_params: List[Tuple[str, Any]],
@@ -292,7 +197,7 @@ async def call_db_procedure_json(
         print(f"📤 [call_db_procedure_json] v_datos_salida inicial:\n{v_datos_salida}")
 
         # 5️⃣ Llamar al procedimiento agrupado
-        res = await call_db_procedure(
+        res = await _call_db_procedure(
             db=db,
             procedure_name=procedure_name,
             ordered_params=[
@@ -347,21 +252,131 @@ async def call_db_procedure_json(
             detail=f"Error interno al ejecutar {procedure_name}: {str(e)}",
         )
 
+# --------------------------------------------------------------------------------------
+# --------------------------------------------------------------------------------------
+async def call_db_procedure_no_exception(
+    db,
+    procedure_name: str,
+    ordered_params: List[Tuple[str, Any]],
+    output_vars: List[str],
+    debug_print: bool = False,
+) -> Dict[str, Any]:
+    """
+    Combina la lógica JSON de call_db_procedure_json (agrupa parámetros en
+    v_datos_entrada / v_datos_salida) con el comportamiento "no exception" de
+    call_db_procedure_no_exception (no lanza excepción ante v_retNum negativo,
+    simplemente devuelve el resultado tal cual).
+    """
+
+    try:
+        # 1️⃣ Convertir lista de parámetros en dict
+        params_dict = dict(ordered_params)
+
+        # 2️⃣ Variables fijas estándar
+        fixed_params = {
+            "v_idApp": params_dict.get("v_idApp"),
+            "v_user": params_dict.get("v_user"),
+            "v_retNum": params_dict.get("v_retNum", 0),
+            "v_retTxt": params_dict.get("v_retTxt", ""),
+        }
+
+        # 3️⃣ Separar dinámicamente las variables
+        entrada_vars = {}
+        salida_vars = {}
+
+        for k, v in ordered_params:
+            if k in fixed_params:
+                continue
+
+            if k in output_vars:
+                salida_vars[k] = v
+                if v is not None:
+                    entrada_vars[k] = v
+            else:
+                entrada_vars[k] = v
+
+        # 4️⃣ Crear los JSON
+        v_datos_entrada = json.dumps(entrada_vars, ensure_ascii=False)
+        v_datos_salida = json.dumps(salida_vars, ensure_ascii=False)
+
+        if debug_print:
+            print(f"📥 [call_db_procedure_json_NE] v_datos_entrada:\n{v_datos_entrada}")
+            print(
+                f"📤 [call_db_procedure_json_NE] v_datos_salida inicial:\n{v_datos_salida}"
+            )
+
+        # 5️⃣ Llamar al procedimiento agrupado (sin excepción por retNum negativo)
+        res = await _call_db_procedure_no_exception(
+            db=db,
+            procedure_name=procedure_name,
+            ordered_params=[
+                ("v_idApp", fixed_params["v_idApp"]),
+                ("v_user", fixed_params["v_user"]),
+                ("v_retNum", fixed_params["v_retNum"]),
+                ("v_retTxt", fixed_params["v_retTxt"]),
+                ("v_datos_entrada", v_datos_entrada),
+                ("v_datos_salida", v_datos_salida),
+            ],
+            output_vars=["v_retNum", "v_retTxt", "v_datos_salida"],
+            debug_print=debug_print,
+        )
+
+        # 6️⃣ Procesar respuesta
+        ret_num = res.get("v_retNum", -99)
+        ret_txt = res.get("v_retTxt", "Error desconocido")
+        datos_salida_raw = res.get("v_datos_salida")
+
+        if debug_print:
+            print(
+                f"📦 [call_db_procedure_json_NE] Resultado bruto v_datos_salida:\n{datos_salida_raw}"
+            )
+
+        # 7️⃣ Decodificar JSON
+        datos_salida = {}
+        if datos_salida_raw:
+            try:
+                datos_salida = json.loads(datos_salida_raw)
+            except Exception:
+                print(
+                    "[WARN] call_db_procedure_json_NE: No se pudo decodificar v_datos_salida (no es JSON válido)."
+                )
+
+        # 8️⃣ Combinar resultados
+        final_result = {
+            "v_retNum": ret_num,
+            "v_retTxt": ret_txt,
+            **datos_salida,
+        }
+
+        if debug_print:
+            print(f"✅ [call_db_procedure_json_NE] Resultado final:\n{final_result}")
+
+        return final_result
+
+    except Exception as e:
+        print(f"❌ [ERROR] call_db_procedure_json_NE({procedure_name}) → {e}")
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"[ERROR] call_db_procedure_json_NE({procedure_name}). Fallo: {e}",
+        )
 
 # --------------------------------------------------------------------------------------
 # --------------------------------------------------------------------------------------
-async def call_db_procedure(
+async def _call_db_procedure(
     db: Session,
     procedure_name: str,
     ordered_params: List[Tuple[str, Any]],
     output_vars: List[str],
     debug_print: bool = False,
 ) -> Dict[str, Any]:
+    res: Dict[str, Any] = {}
     try:
         param_placeholders = []
         param_values = {}
 
-        print(f"[DEBUG] Executing {procedure_name}")
+        if debug_print:
+            print(f"[DEBUG] Executing {procedure_name}")
 
         # Los procedimientos almacenados deben comenzar con "w_"
         if not procedure_name.startswith("w_"):
@@ -428,16 +443,18 @@ async def call_db_procedure(
             res.get("v_exec_python", "") != ""
             and res.get("v_exec_python", "") is not None
         ):
-            print("   ---- EXEC ---->>>  ", res.get("v_exec_python"))
+            if debug_print:
+                print("   ---- EXEC ---->>>  ", res.get("v_exec_python"))
             await exec_python_output(res.get("v_exec_python"), db)
 
         # print(f"[call_db_procedure] {procedure_name} ---> {type(res)} - {res}")
         return res
 
-    except HTTPException as e:  # 👈 deja pasar las que ya lanzaste
-        print(
-            f"[call_db_procedure] {procedure_name} HTTPException: {e.detail} ---> {type(res)} - {res}"
-        )
+    except HTTPException as e:
+        if debug_print:
+            print(
+                f"[call_db_procedure] {procedure_name} HTTPException: {e.detail} ---> {type(res)} - {res}"
+            )
         raise
     except Exception as e:
         print(f"[call_db_procedure] {procedure_name} Exception: Fallo: {e}")
@@ -454,7 +471,7 @@ async def call_db_procedure(
 
 # --------------------------------------------------------------------------------------
 # --------------------------------------------------------------------------------------
-async def call_db_procedure_no_exception(
+async def _call_db_procedure_no_exception(
     db: Session,
     procedure_name: str,
     ordered_params: List[Tuple[str, Any]],
@@ -515,110 +532,3 @@ async def call_db_procedure_no_exception(
             detail=f"[ERROR] call_db_procedure_NE({procedure_name}). Fallo: {e}",
         )
 
-
-async def call_db_procedure_json_no_exception(
-    db,
-    procedure_name: str,
-    ordered_params: List[Tuple[str, Any]],
-    output_vars: List[str],
-    debug_print: bool = False,
-) -> Dict[str, Any]:
-    """
-    Combina la lógica JSON de call_db_procedure_json (agrupa parámetros en
-    v_datos_entrada / v_datos_salida) con el comportamiento "no exception" de
-    call_db_procedure_no_exception (no lanza excepción ante v_retNum negativo,
-    simplemente devuelve el resultado tal cual).
-    """
-
-    try:
-        # 1️⃣ Convertir lista de parámetros en dict
-        params_dict = dict(ordered_params)
-
-        # 2️⃣ Variables fijas estándar
-        fixed_params = {
-            "v_idApp": params_dict.get("v_idApp"),
-            "v_user": params_dict.get("v_user"),
-            "v_retNum": params_dict.get("v_retNum", 0),
-            "v_retTxt": params_dict.get("v_retTxt", ""),
-        }
-
-        # 3️⃣ Separar dinámicamente las variables
-        entrada_vars = {}
-        salida_vars = {}
-
-        for k, v in ordered_params:
-            if k in fixed_params:
-                continue
-
-            if k in output_vars:
-                salida_vars[k] = v
-                if v is not None:
-                    entrada_vars[k] = v
-            else:
-                entrada_vars[k] = v
-
-        # 4️⃣ Crear los JSON
-        v_datos_entrada = json.dumps(entrada_vars, ensure_ascii=False)
-        v_datos_salida = json.dumps(salida_vars, ensure_ascii=False)
-
-        if debug_print:
-            print(f"📥 [call_db_procedure_json_NE] v_datos_entrada:\n{v_datos_entrada}")
-            print(
-                f"📤 [call_db_procedure_json_NE] v_datos_salida inicial:\n{v_datos_salida}"
-            )
-
-        # 5️⃣ Llamar al procedimiento agrupado (sin excepción por retNum negativo)
-        res = await call_db_procedure_no_exception(
-            db=db,
-            procedure_name=procedure_name,
-            ordered_params=[
-                ("v_idApp", fixed_params["v_idApp"]),
-                ("v_user", fixed_params["v_user"]),
-                ("v_retNum", fixed_params["v_retNum"]),
-                ("v_retTxt", fixed_params["v_retTxt"]),
-                ("v_datos_entrada", v_datos_entrada),
-                ("v_datos_salida", v_datos_salida),
-            ],
-            output_vars=["v_retNum", "v_retTxt", "v_datos_salida"],
-            debug_print=debug_print,
-        )
-
-        # 6️⃣ Procesar respuesta
-        ret_num = res.get("v_retNum", -99)
-        ret_txt = res.get("v_retTxt", "Error desconocido")
-        datos_salida_raw = res.get("v_datos_salida")
-
-        if debug_print:
-            print(
-                f"📦 [call_db_procedure_json_NE] Resultado bruto v_datos_salida:\n{datos_salida_raw}"
-            )
-
-        # 7️⃣ Decodificar JSON
-        datos_salida = {}
-        if datos_salida_raw:
-            try:
-                datos_salida = json.loads(datos_salida_raw)
-            except Exception:
-                print(
-                    "[WARN] call_db_procedure_json_NE: No se pudo decodificar v_datos_salida (no es JSON válido)."
-                )
-
-        # 8️⃣ Combinar resultados
-        final_result = {
-            "v_retNum": ret_num,
-            "v_retTxt": ret_txt,
-            **datos_salida,
-        }
-
-        if debug_print:
-            print(f"✅ [call_db_procedure_json_NE] Resultado final:\n{final_result}")
-
-        return final_result
-
-    except Exception as e:
-        print(f"❌ [ERROR] call_db_procedure_json_NE({procedure_name}) → {e}")
-        traceback.print_exc()
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"[ERROR] call_db_procedure_json_NE({procedure_name}). Fallo: {e}",
-        )

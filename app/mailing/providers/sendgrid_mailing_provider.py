@@ -34,7 +34,6 @@ class SendgridMailingProvider(MailingProvider):
         api_key = credentials.get("api_key")
         if not api_key:
             raise ValueError("Falta 'api_key' para SendGrid")
-        print(f"SENDGRID API KEY:: '{api_key}'")
         self.sg = sendgrid.SendGridAPIClient(api_key=api_key)
 
     def _add_recipients(self, message: Mail, envio: MailEnvio):
@@ -197,5 +196,4 @@ class SendgridMailingProvider(MailingProvider):
             }
         except Exception as e:
             logger.error(f"Error en envío SendGrid: {e}", exc_info=True)
-            print(f"[Error] en envío SendGrid: {e}")
             raise

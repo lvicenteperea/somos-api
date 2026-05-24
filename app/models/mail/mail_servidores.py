@@ -2,15 +2,13 @@ from sqlmodel import SQLModel, Field
 from typing import Optional
 from datetime import datetime
 from cryptography.fernet import Fernet
-from dotenv import load_dotenv
-import os
 import json
 
-load_dotenv()
+from app.config.settings import settings
 
 
 def get_fernet() -> Fernet:
-    key = os.getenv("API_PAYMENTS_KEY")
+    key = settings.API_PAYMENTS_KEY
     if not key:
         raise ValueError("API_PAYMENTS_KEY no definido en el entorno")
     return Fernet(key)

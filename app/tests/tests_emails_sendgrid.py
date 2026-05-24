@@ -7,6 +7,11 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlmodel import Session, select
 
+pytestmark = pytest.mark.integration
+
+if os.getenv("RUN_INTEGRATION_TESTS") != "1":
+    pytest.skip("requiere BBDD y proveedor SendGrid real", allow_module_level=True)
+
 from app.main import app
 from app.config.db import get_db_manager
 from app.models.mail.mail_envios import MailEnvio
