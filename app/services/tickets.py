@@ -34,6 +34,8 @@ class TicketsService:
 
         # try:
             imagen_guardada = await self._save_ticket_image(imagen)
+            imagen_guardada = imagen_guardada["url"] if imagen_guardada else None
+
 
             fecha_madrid = self._format_madrid_datetime(fecha_ticket)
 
@@ -46,7 +48,7 @@ class TicketsService:
                     ("v_retNum", 0),
                     ("v_retTxt", ""),
                     ("v_id_campana", id_campana),
-                    ("v_ticket", imagen_guardada["url"]),
+                    ("v_ticket", imagen_guardada),
                     ("v_numero_ticket", numero_ticket),
                     ("v_fecha", fecha_madrid),
                     ("v_importe", float(importe)),
@@ -90,69 +92,70 @@ class TicketsService:
         
     # -----------------------------------------------------------------------------------
     async def _save_ticket_image(self, imagen: UploadFile) -> Dict[str, str]:
-        original_name = Path(imagen.filename or "ticket").name
+        original_name = Path(imagen.filename or "viene_sin_ticket_7647").name
         extension = Path(original_name).suffix.lower()
 
+        print("Datos imagen:", original_name, '-', extension, '-', imagen.content_type, '-', imagen.filename)
+            
+        if original_name != "viene_sin_ticket_7647":
+            if extension not in self.ALLOWED_IMAGE_EXTENSIONS:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"La imagen debe ser {self.ALLOWED_IMAGE_EXTENSIONS}",
+                )
 
-        print("Datos imagen:", original_name, extension, imagen.content_type)
+            if imagen.content_type and not imagen.content_type.lower().startswith("image/"):
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="El fichero debe ser una imagen",
+                )
 
+            media_root = Path(settings.TICKET_MEDIA_PATH)
+            media_root.mkdir(parents=True, exist_ok=True)
 
-        if extension not in self.ALLOWED_IMAGE_EXTENSIONS:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"La imagen debe ser {self.ALLOWED_IMAGE_EXTENSIONS}",
-            )
+            timestamp = ahora().strftime("%Y%m%d%H%M%S")
+            safe_name = f"{timestamp}_{uuid4().hex}{extension}"
+            save_path = media_root / safe_name
+            max_bytes = settings.TICKET_MAX_IMAGE_MB * 1024 * 1024
+            total_bytes = 0
 
-        if imagen.content_type and not imagen.content_type.lower().startswith("image/"):
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="El fichero debe ser una imagen",
-            )
+            try:
+                with open(save_path, "wb") as output_file:
+                    while chunk := await imagen.read(1024 * 1024):
+                        total_bytes += len(chunk)
+                        if total_bytes > max_bytes:
+                            raise HTTPException(
+                                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                                detail=(
+                                    "La imagen supera el tamano maximo de "
+                                    f"{settings.TICKET_MAX_IMAGE_MB} MB"
+                                ),
+                            )
+                        output_file.write(chunk)
+            except HTTPException:
+                save_path.unlink(missing_ok=True)
+                raise
+            except Exception as exc:
+                save_path.unlink(missing_ok=True)
+                raise HTTPException(
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                    detail=f"Error al guardar la imagen del ticket: {exc}",
+                )
 
-        media_root = Path(settings.TICKET_MEDIA_PATH)
-        media_root.mkdir(parents=True, exist_ok=True)
+            if total_bytes == 0:
+                save_path.unlink(missing_ok=True)
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="La imagen no puede estar vacia",
+                )
 
-        timestamp = ahora().strftime("%Y%m%d%H%M%S")
-        safe_name = f"{timestamp}_{uuid4().hex}{extension}"
-        save_path = media_root / safe_name
-        max_bytes = settings.TICKET_MAX_IMAGE_MB * 1024 * 1024
-        total_bytes = 0
-
-        try:
-            with open(save_path, "wb") as output_file:
-                while chunk := await imagen.read(1024 * 1024):
-                    total_bytes += len(chunk)
-                    if total_bytes > max_bytes:
-                        raise HTTPException(
-                            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-                            detail=(
-                                "La imagen supera el tamano maximo de "
-                                f"{settings.TICKET_MAX_IMAGE_MB} MB"
-                            ),
-                        )
-                    output_file.write(chunk)
-        except HTTPException:
-            save_path.unlink(missing_ok=True)
-            raise
-        except Exception as exc:
-            save_path.unlink(missing_ok=True)
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Error al guardar la imagen del ticket: {exc}",
-            )
-
-        if total_bytes == 0:
-            save_path.unlink(missing_ok=True)
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="La imagen no puede estar vacia",
-            )
-
-        return {
-            "url": save_path.as_posix(),
-            "nombre": safe_name,
-            "nombre_original": original_name,
-        }
+            return {
+                "url": save_path.as_posix(),
+                "nombre": safe_name,
+                "nombre_original": original_name,
+            }
+        else:
+            return None
 
     @staticmethod
     def _format_madrid_datetime(value: datetime) -> str:
