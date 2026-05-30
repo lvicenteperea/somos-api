@@ -27,9 +27,12 @@ async def authenticate_user(db: Session, username: str, password: str, slug: str
     user = result.scalar_one_or_none()
 
     if not user or not verify_password(password, user.hashed_password):
+        print(f"Authenticating user: {username}, found user: {user}. pwd{password}")
         return None
+    
+    print(f"Authenticating user: {username}, found user: {user}")
 
-    return user
+    return user or 'Token de prueba'
 
 
 async def get_jwt_token(db: Session, username: str, password: str, slug: str):

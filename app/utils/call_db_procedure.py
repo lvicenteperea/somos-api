@@ -370,6 +370,8 @@ async def _call_db_procedure(
     output_vars: List[str],
     debug_print: bool = False,
 ) -> Dict[str, Any]:
+    
+    
     res: Dict[str, Any] = {}
     try:
         param_placeholders = []

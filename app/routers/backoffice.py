@@ -49,10 +49,10 @@ async def login(login_data: LoginRequest, db: Session = Depends(get_db)) -> Auth
 )
 async def validar_ticket_handler(
     user: str = Form(..., min_length=1),
-    imagen: UploadFile = File(...),
+    imagen: UploadFile = File(None, description="Imagen del ticket en formato JPEG o PNG"),
     id_campana: int = Form(..., ge=1),
     numero_ticket: str = Form(..., min_length=1),
-    fecha: datetime = Form(...),
+    fecha: datetime = Form(...,description="Fecha del ticket en formato  ISO 8601, por ejemplo 2026-05-24T14:30:00+02:00"),
     importe: Decimal = Form(...),
     id_app: int = Form(settings.APP_ID, ge=1),
     db: Session = Depends(get_db),

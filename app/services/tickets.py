@@ -17,8 +17,7 @@ from app.utils.dates import ahora
 class TicketsService:
     """Servicio para validacion de tickets."""
 
-    ALLOWED_IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif"}
-    PROCEDURE_NAME = "w_ticket_valida"
+    ALLOWED_IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif", ".pdf"}
 
     async def validar_ticket(
         self,
@@ -31,61 +30,77 @@ class TicketsService:
         fecha_ticket: datetime,
         importe: Decimal,
     ) -> TicketValidaResponse:
-        imagen_guardada = await self._save_ticket_image(imagen)
-        fecha_madrid = self._format_madrid_datetime(fecha_ticket)
+        
 
-        resultado_proc = await call_db_procedure_no_exception(
-            db=db,
-            procedure_name=self.PROCEDURE_NAME,
-            ordered_params=[
-                ("v_idApp", id_app),
-                ("v_user", user),
-                ("v_retNum", 0),
-                ("v_retTxt", ""),
-                ("v_id_campana", id_campana),
-                ("v_ticket", imagen_guardada["url"]),
-                ("v_numero_ticket", numero_ticket),
-                ("v_fecha", fecha_madrid),
-                ("v_importe", float(importe)),
-                ("v_cupon", None),
-                ("v_id", None),
-            ],
-            output_vars=["v_retNum", "v_retTxt", "v_cupon", "v_id"],
-        )
+        # try:
+            imagen_guardada = await self._save_ticket_image(imagen)
 
-        ret_num = self._to_int(resultado_proc.get("v_retNum"), default=-99)
-        ret_txt = resultado_proc.get("v_retTxt") or ""
+            fecha_madrid = self._format_madrid_datetime(fecha_ticket)
 
-        if ret_num == -99:
-            raise HTTPException(
-                status_code=status.HTTP_406_NOT_ACCEPTABLE,
-                detail=ret_txt,
+            resultado_proc = await call_db_procedure_no_exception(
+                db=db,
+                procedure_name="w_ticket_valida",
+                ordered_params=[
+                    ("v_idApp", id_app),
+                    ("v_user", user),
+                    ("v_retNum", 0),
+                    ("v_retTxt", ""),
+                    ("v_id_campana", id_campana),
+                    ("v_ticket", imagen_guardada["url"]),
+                    ("v_numero_ticket", numero_ticket),
+                    ("v_fecha", fecha_madrid),
+                    ("v_importe", float(importe)),
+                    ("v_cupon", None),
+                    ("v_id", None),
+                ],
+                output_vars=["v_retNum", "v_retTxt", "v_cupon", "v_id"],
             )
 
-        if ret_num < 0:
-            raise HTTPException(
-                status_code=status.HTTP_410_GONE,
-                detail=ret_txt,
+            ret_num = self._to_int(resultado_proc.get("v_retNum"), default=-99)
+            ret_txt = resultado_proc.get("v_retTxt") or ""
+
+            if ret_num == -99:
+                raise HTTPException(
+                    status_code=status.HTTP_406_NOT_ACCEPTABLE,
+                    detail=ret_txt,
+                )
+
+            if ret_num < 0:
+                raise HTTPException(
+                    status_code=status.HTTP_410_GONE,
+                    detail=ret_txt,
+                )
+
+            id_cupon = resultado_proc.get("v_id")
+            if id_cupon == "":
+                id_cupon = None
+
+            return TicketValidaResponse(
+                texto=ret_txt,
+                cupon=resultado_proc.get("v_cupon"),
+                id_cupon=id_cupon,
             )
-
-        id_cupon = resultado_proc.get("v_id")
-        if id_cupon == "":
-            id_cupon = None
-
-        return TicketValidaResponse(
-            texto=ret_txt,
-            cupon=resultado_proc.get("v_cupon"),
-            id_cupon=id_cupon,
-        )
-
+        # except HTTPException:
+        #     raise
+        # except Exception as exc:
+        #     raise HTTPException(
+        #         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        #         detail=f"Error al validar el ticket: {exc}",
+        #     )
+        
+    # -----------------------------------------------------------------------------------
     async def _save_ticket_image(self, imagen: UploadFile) -> Dict[str, str]:
         original_name = Path(imagen.filename or "ticket").name
         extension = Path(original_name).suffix.lower()
 
+
+        print("Datos imagen:", original_name, extension, imagen.content_type)
+
+
         if extension not in self.ALLOWED_IMAGE_EXTENSIONS:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="La imagen debe ser jpg, jpeg, png, webp, heic o heif",
+                detail=f"La imagen debe ser {self.ALLOWED_IMAGE_EXTENSIONS}",
             )
 
         if imagen.content_type and not imagen.content_type.lower().startswith("image/"):
